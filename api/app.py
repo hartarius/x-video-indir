@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import os
 import re
+import sys
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -36,7 +37,7 @@ class handler(BaseHTTPRequestHandler):
             # Use yt-dlp to extract video URL only (fast, no download)
             with tempfile.TemporaryDirectory() as tmpdir:
                 result = subprocess.run(
-                    ['yt-dlp', '--get-url', '--no-playlist', '--no-warnings',
+                    [sys.executable, '-m', 'yt_dlp', '--get-url', '--no-playlist', '--no-warnings',
                      '--socket-timeout', '10', url],
                     capture_output=True, text=True, timeout=25,
                     cwd=tmpdir
@@ -61,7 +62,7 @@ class handler(BaseHTTPRequestHandler):
                 
                 # Also get video info (title, duration, thumbnail)
                 info_result = subprocess.run(
-                    ['yt-dlp', '--dump-json', '--no-playlist', '--no-warnings',
+                    [sys.executable, '-m', 'yt_dlp', '--dump-json', '--no-playlist', '--no-warnings',
                      '--socket-timeout', '5', url],
                     capture_output=True, text=True, timeout=10,
                     cwd=tmpdir
