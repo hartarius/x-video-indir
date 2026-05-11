@@ -1,5 +1,6 @@
 from http.server import BaseHTTPRequestHandler
 import json, sys, io
+from urllib.parse import unquote
 
 HTML = r'''<!DOCTYPE html>
 <html lang="tr">
@@ -154,6 +155,7 @@ class handler(BaseHTTPRequestHandler):
             return
 
         url = url.strip()
+        url = unquote(url)  # Decode URL encoding from Vercel routing
         try:
             import yt_dlp
             
