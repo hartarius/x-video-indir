@@ -1,6 +1,5 @@
 {
   "routes": [
     { "src": "/(.*)", "dest": "/api/app" }
-  ],
-  "installCommand": "pip install yt-dlp"
+  ]
 }
