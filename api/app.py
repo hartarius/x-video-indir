@@ -1,10 +1,5 @@
 from http.server import BaseHTTPRequestHandler
-import json
-import subprocess
-import tempfile
-import os
-import re
-import sys
+import json, sys, io
 
 HTML = r'''<!DOCTYPE html>
 <html lang="tr">
@@ -99,7 +94,7 @@ h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; margin-botto
       <a class="btn-download" id="downloadBtn" href="#" target="_blank">⬇️ Videoyu Indir</a>
     </div>
   </div>
-  <div class="footer">yt-dlp gucuyle &middot; Vercel</div>
+  <div class="footer">yt-dlp gucuyle · Vercel · <a href="https://github.com/hartarius/x-video-indir" target="_blank">GitHub</a></div>
 </div>
 <div class="toast" id="toast"></div>
 <script>
@@ -126,14 +121,13 @@ async function fetchVideo() {
   finally { btn.classList.remove('loading'); btn.disabled=false; }
 }
 document.getElementById('urlInput').addEventListener('keydown',function(e){if(e.key==='Enter')fetchVideo();});
-document.getElementById('urlInput').addEventListener('focus',async function(){if(!this.value){try{const text=await navigator.clipboard.readText();if(text.includes('x.com/')||text.includes('twitter.com/')){this.value=text;showToast('📋 Link panodan alindi');}}catch{}}});
+document.getElementById('urlInput').addEventListener('focus',async function(){if(!this.value){try{const text=await navigator.clipboard.readText();if(text.includes('x.com/')||text.includes('twitter.com/')){this.value=text;showToast('📋 Link panodan alindi');} }catch{}}});
 </script>
 </body>
 </html>'''
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        # Serve HTML for root
         if self.path == '/' or self.path == '/index.html':
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -141,7 +135,6 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(HTML.encode('utf-8'))
             return
         
-        # API endpoint
         url = None
         if '?' in self.path:
             query = self.path.split('?', 1)[1]
@@ -162,28 +155,30 @@ class handler(BaseHTTPRequestHandler):
 
         url = url.strip()
         try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                result = subprocess.run(
-                    [sys.executable, '-m', 'yt_dlp', '--get-url', '--no-playlist', '--no-warnings', '--socket-timeout', '10', url],
-                    capture_output=True, text=True, timeout=25, cwd=tmpdir)
+            import yt_dlp
+            
+            opts = {
+                'quiet': True, 'no_warnings': True, 'no_color': True,
+                'socket_timeout': 10, 'extract_flat': False,
+            }
+            
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
                 
-                if result.returncode != 0:
-                    err = result.stderr.strip() or 'Video bilgisi alinamadi'
-                    if 'No video formats found' in err: err = 'Bu tweette video bulunamadi'
-                    elif 'private' in err.lower(): err = 'Bu hesap gizli, videoya erisilemiyor'
-                    elif 'not found' in err.lower(): err = 'Tweet bulunamadi veya silinmis'
-                    self.wfile.write(json.dumps({'error': err}, ensure_ascii=False).encode('utf-8'))
+                if not info:
+                    self.wfile.write(json.dumps({'error': 'Video bilgisi alinamadi'}, ensure_ascii=False).encode('utf-8'))
                     return
                 
-                video_url = result.stdout.strip()
-                info_result = subprocess.run(
-                    [sys.executable, '-m', 'yt_dlp', '--dump-json', '--no-playlist', '--no-warnings', '--socket-timeout', '5', url],
-                    capture_output=True, text=True, timeout=10, cwd=tmpdir)
+                video_url = info.get('url', '')
+                if not video_url and 'formats' in info:
+                    for fmt in info['formats']:
+                        if fmt.get('url'):
+                            video_url = fmt['url']
+                            break
                 
-                info = {}
-                if info_result.returncode == 0:
-                    try: info = json.loads(info_result.stdout)
-                    except: pass
+                if not video_url:
+                    self.wfile.write(json.dumps({'error': 'Video URL bulunamadi'}, ensure_ascii=False).encode('utf-8'))
+                    return
                 
                 self.wfile.write(json.dumps({
                     'success': True, 'url': video_url,
@@ -192,8 +187,7 @@ class handler(BaseHTTPRequestHandler):
                     'thumbnail': info.get('thumbnail', ''),
                     'uploader': info.get('uploader', ''),
                 }, ensure_ascii=False).encode('utf-8'))
-        except subprocess.TimeoutExpired:
-            self.wfile.write(json.dumps({'error': 'Zaman asimi, tekrar dene'}, ensure_ascii=False).encode('utf-8'))
+                
         except Exception as e:
             self.wfile.write(json.dumps({'error': f'Hata: {str(e)}'}, ensure_ascii=False).encode('utf-8'))
 
