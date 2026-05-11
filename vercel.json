@@ -1,9 +1,17 @@
 {
-  "functions": {
-    "api/app.py": {
-      "memory": 1024,
-      "maxDuration": 30
+  "builds": [
+    {
+      "src": "api/app.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "index.html",
+      "use": "@vercel/static"
     }
-  },
-  "cleanUrls": true
+  ],
+  "routes": [
+    { "src": "/api/app", "dest": "/api/app" },
+    { "src": "/", "dest": "/index.html" },
+    { "src": "/(.*)", "dest": "/$1" }
+  ]
 }
