@@ -1,5 +1,4 @@
 {
   "buildCommand": "",
-  "outputDirectory": "public",
-  "installCommand": "pip install -r requirements.txt"
+  "cleanUrls": true
 }
