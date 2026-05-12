@@ -51,8 +51,9 @@ h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; margin-botto
 .video-meta { flex: 1; min-width: 0; }
 .video-title { font-size: 0.9rem; font-weight: 600; line-height: 1.3; margin-bottom: 0.35rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .video-uploader { font-size: 0.8rem; color: var(--dim); }
-.btn-download { display: flex; align-items: center; justify-content: center; gap: 0.5rem; width: 100%; background: var(--success); padding: 0.85rem; border-radius: 10px; font-size: 0.95rem; font-weight: 600; color: #fff; text-decoration: none; }
+.btn-download { display: flex; align-items: center; justify-content: center; gap: 0.5rem; width: 100%; background: var(--success); padding: 0.85rem; border-radius: 10px; font-size: 0.95rem; font-weight: 600; color: #fff; border: none; cursor: pointer; font-family: inherit; }
 .btn-download:hover { background: #1ea34e; }
+.btn-download:disabled { opacity: 0.5; cursor: not-allowed; }
 .spinner { display: none; width: 24px; height: 24px; border: 2.5px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .loading .spinner { display: inline-block; }
@@ -92,7 +93,7 @@ h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; margin-botto
           <div class="video-uploader" id="uploader"></div>
         </div>
       </div>
-      <a class="btn-download" id="downloadBtn" href="#" target="_blank">⬇️ Videoyu Indir</a>
+      <button class="btn-download" id="downloadBtn" onclick="downloadVideo()">⬇️ Videoyu Indir</button>
     </div>
   </div>
   <div class="footer">yt-dlp gucuyle · Vercel · <a href="https://github.com/hartarius/x-video-indir" target="_blank">GitHub</a></div>
@@ -100,9 +101,31 @@ h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; margin-botto
 <div class="toast" id="toast"></div>
 <script>
 const API = '/api';
+let videoUrl = '';
 function showError(msg) { const e=document.getElementById('error'); e.textContent=msg; e.classList.add('show'); document.getElementById('result').classList.remove('show'); }
 function hideError() { document.getElementById('error').classList.remove('show'); }
 function showToast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500); }
+async function downloadVideo() {
+  if(!videoUrl) { showToast('Once bir video arayin'); return; }
+  const btn = document.getElementById('downloadBtn');
+  btn.classList.add('loading'); btn.disabled = true;
+  try {
+    const res = await fetch(videoUrl);
+    if(!res.ok) throw new Error('Indirilemedi');
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'x_video.mp4';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+    showToast('✅ Indirme basladi!');
+  } catch(err) {
+    showToast('❌ Indirme basarisiz, video linkini kopyalayip tarayiciya yapistir');
+  }
+  finally { btn.classList.remove('loading'); btn.disabled = false; }
+}
 async function fetchVideo() {
   const input=document.getElementById('urlInput'), btn=document.getElementById('fetchBtn'), url=input.value.trim();
   if(!url) { showError('Tweet linkini yapistir'); return; }
@@ -112,10 +135,10 @@ async function fetchVideo() {
     const res=await fetch(API+'?url='+encodeURIComponent(url)), data=await res.json();
     if(data.error) { showError(data.error); return; }
     if(data.success) {
+      videoUrl = data.url;
       document.getElementById('title').textContent=data.title||'X Videosu';
       document.getElementById('uploader').textContent=data.uploader?'@'+data.uploader:'';
       document.getElementById('thumb').src=data.thumbnail||'';
-      document.getElementById('downloadBtn').href=data.url;
       document.getElementById('result').classList.add('show'); showToast('✅ Video hazir!');
     }
   } catch(err) { showError('Baglanti hatasi, tekrar dene'); }
