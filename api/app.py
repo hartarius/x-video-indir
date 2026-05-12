@@ -1,6 +1,7 @@
 from http.server import BaseHTTPRequestHandler
 import json, sys, io
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse, parse_qs
+from urllib.request import urlopen
 
 HTML = r'''<!DOCTYPE html>
 <html lang="tr">
@@ -94,6 +95,9 @@ h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; margin-botto
         </div>
       </div>
       <button class="btn-download" id="downloadBtn" onclick="downloadVideo()">⬇️ Videoyu Indir</button>
+      <div style="margin-top:0.75rem; text-align:center; font-size:0.75rem; color:var(--dim);">
+        Calismazsa 👉 <a id="directLink" href="#" style="color:var(--accent); word-break:break-all;">direkt link</a>
+      </div>
     </div>
   </div>
   <div class="footer">yt-dlp gucuyle · Vercel · <a href="https://github.com/hartarius/x-video-indir" target="_blank">GitHub</a></div>
@@ -109,22 +113,15 @@ async function downloadVideo() {
   if(!videoUrl) { showToast('Once bir video arayin'); return; }
   const btn = document.getElementById('downloadBtn');
   btn.classList.add('loading'); btn.disabled = true;
-  try {
-    const res = await fetch(videoUrl);
-    if(!res.ok) throw new Error('Indirilemedi');
-    const blob = await res.blob();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'x_video.mp4';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
-    showToast('✅ Indirme basladi!');
-  } catch(err) {
-    showToast('❌ Indirme basarisiz, video linkini kopyalayip tarayiciya yapistir');
-  }
-  finally { btn.classList.remove('loading'); btn.disabled = false; }
+  const proxyUrl = API + '/download?video_url=' + encodeURIComponent(videoUrl);
+  // Hidden iframe: Content-Disposition triggers download, stays on page
+  const iframe = document.createElement('iframe');
+  iframe.style.display = 'none';
+  iframe.src = proxyUrl;
+  document.body.appendChild(iframe);
+  setTimeout(() => { document.body.removeChild(iframe); }, 15000);
+  setTimeout(() => { btn.classList.remove('loading'); btn.disabled = false; }, 2000);
+  showToast('✅ Indirme basladi! Calismazsa direkt linki dene 👇');
 }
 async function fetchVideo() {
   const input=document.getElementById('urlInput'), btn=document.getElementById('fetchBtn'), url=input.value.trim();
@@ -139,6 +136,7 @@ async function fetchVideo() {
       document.getElementById('title').textContent=data.title||'X Videosu';
       document.getElementById('uploader').textContent=data.uploader?'@'+data.uploader:'';
       document.getElementById('thumb').src=data.thumbnail||'';
+      document.getElementById('directLink').href = data.url;
       document.getElementById('result').classList.add('show'); showToast('✅ Video hazir!');
     }
   } catch(err) { showError('Baglanti hatasi, tekrar dene'); }
@@ -152,6 +150,40 @@ document.getElementById('urlInput').addEventListener('focus',async function(){if
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        path = urlparse(self.path).path
+        params = parse_qs(urlparse(self.path).query)
+        
+        # --- Download proxy: server fetches video, no CORS ---
+        if path == '/api/download':
+            video_url = params.get('video_url', [None])[0]
+            if not video_url:
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': 'video_url parametresi gerekli'}, ensure_ascii=False).encode('utf-8'))
+                return
+            video_url = unquote(video_url)
+            try:
+                with urlopen(video_url, timeout=30) as resp:
+                    self.send_response(200)
+                    self.send_header('Content-Type', resp.headers.get('Content-Type', 'video/mp4'))
+                    self.send_header('Content-Disposition', 'attachment; filename="x_video.mp4"')
+                    self.send_header('Content-Length', resp.headers.get('Content-Length', ''))
+                    self.end_headers()
+                    # Stream in chunks
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+            except Exception as e:
+                self.send_response(502)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': f'Video indirilemedi: {str(e)}'}, ensure_ascii=False).encode('utf-8'))
+            return
+        
+        # --- HTML page ---
         if self.path == '/' or self.path == '/index.html':
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -159,14 +191,8 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(HTML.encode('utf-8'))
             return
         
-        url = None
-        if '?' in self.path:
-            query = self.path.split('?', 1)[1]
-            for param in query.split('&'):
-                if '=' in param:
-                    key, val = param.split('=', 1)
-                    if key == 'url':
-                        url = val
+        # --- Video info API ---
+        url = params.get('url', [None])[0]
 
         self.send_response(200)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -178,7 +204,7 @@ class handler(BaseHTTPRequestHandler):
             return
 
         url = url.strip()
-        url = unquote(url)  # Decode URL encoding from Vercel routing
+        url = unquote(url)
         try:
             import yt_dlp
             
